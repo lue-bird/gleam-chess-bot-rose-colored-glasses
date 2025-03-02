@@ -1,9 +1,9 @@
+import chess_engine_massage/chess
 import gleam/dynamic/decode
 import gleam/javascript/promise.{type Promise}
 import gleam/json
 import glen
 import glen/status
-import javascript_template/chess
 
 pub fn main() {
   glen.serve(8000, handle_request)

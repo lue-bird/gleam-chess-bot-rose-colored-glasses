@@ -16,5 +16,5 @@ RUN cd /build \
 
 # Run the server
 WORKDIR /app
-RUN echo "main()" >> /app/javascript_template/javascript_template.mjs
-CMD ["deno", "--allow-net", "/app/javascript_template/javascript_template.mjs"]
+RUN echo "main()" >> /app/chess_engine_massage/chess_engine_massage.mjs
+CMD ["deno", "--allow-net", "/app/chess_engine_massage/chess_engine_massage.mjs"]
