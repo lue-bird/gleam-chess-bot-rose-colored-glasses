@@ -1,20 +1,13 @@
-FROM ghcr.io/gleam-lang/gleam:v1.8.1-node-slim
-
-# Install Deno
-COPY --from=denoland/deno:bin-2.2.2 /deno /usr/local/bin/deno
-RUN chown -R 777 /usr/local/bin/deno
+FROM ghcr.io/gleam-lang/gleam:v1.9.1-erlang-alpine AS builder
 
 WORKDIR /build
-
 COPY . /build
 
-# Compile the project
-RUN cd /build \
-  && gleam build --target javascript \
-  && mv build/dev/javascript /app \
-  && rm -r /build
+RUN gleam export erlang-shipment
 
-# Run the server
+FROM erlang:alpine
+
 WORKDIR /app
-RUN echo "main()" >> /app/chess_engine_massage/chess_engine_massage.mjs
-CMD ["deno", "--allow-net", "/app/chess_engine_massage/chess_engine_massage.mjs"]
+COPY --from=builder /build/build/erlang-shipment /app
+
+ENTRYPOINT [ "./entrypoint.sh", "run" ]
