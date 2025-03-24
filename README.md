@@ -1,6 +1,6 @@
 # gleam chess engine "massage"
 
-> In progress
+> In progress. TODO rename to optimist
 
 My submission to [isaacharrisholt/gleam-chess-tournament](https://github.com/isaacharrisholt/gleam-chess-tournament).
 Thanks for the cool competition!
