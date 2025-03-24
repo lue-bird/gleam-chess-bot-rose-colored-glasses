@@ -1654,7 +1654,7 @@ pub fn legal_moves(fen: Fen) -> List(MoveSan) {
                   board_piece_at(fen.board, Position(F, One)),
                   board_piece_at(fen.board, Position(G, One)),
                   board_is_check(
-                    BoardBB(..fen.board, black_king_bitboard: f1),
+                    BoardBB(..fen.board, white_king_bitboard: f1),
                     for: fen.turn,
                   )
                 {
@@ -1691,7 +1691,7 @@ pub fn legal_moves(fen: Fen) -> List(MoveSan) {
                   board_piece_at(fen.board, Position(C, One)),
                   board_piece_at(fen.board, Position(D, One)),
                   board_is_check(
-                    BoardBB(..fen.board, black_king_bitboard: d1),
+                    BoardBB(..fen.board, white_king_bitboard: d1),
                     for: fen.turn,
                   )
                 {
@@ -1951,7 +1951,6 @@ pub fn board_is_check(
     board.white_king_bitboard |> bitboard_occupied_positions
   let assert [black_king_position, ..] =
     board.black_king_bitboard |> bitboard_occupied_positions
-  // TODO
   case king_color_to_check_for {
     Black ->
       position_attacked_by_pawn(
