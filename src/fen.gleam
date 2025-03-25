@@ -1391,7 +1391,11 @@ fn list_somes(options: List(Option(a))) -> List(a) {
   list.filter_map(options, fn(option) { option.to_result(option, #()) })
 }
 
-pub fn legal_moves(fen: Fen) -> List(MoveSan) {
+pub type MoveSanAndFenAfterMove {
+  MoveSanAndFenAfterMove(move_san: MoveSan, fen_after_move: Fen)
+}
+
+pub fn legal_moves(fen: Fen) -> List(MoveSanAndFenAfterMove) {
   let board_pieces_for_turn = case fen.turn {
     Black -> board_pieces_black(fen.board)
     White -> board_pieces_white(fen.board)
@@ -1886,10 +1890,13 @@ pub fn legal_moves(fen: Fen) -> List(MoveSan) {
     }
   })
   |> list_map_and_somes(fn(move_san) {
-    // TODO optimize to return the calculated fens as well
     let fen_after_move = fen_apply_move_san(fen, move_san)
     case board_is_check(fen_after_move.board, for: fen.turn) {
-      False -> Some(move_san)
+      False ->
+        Some(MoveSanAndFenAfterMove(
+          move_san: move_san,
+          fen_after_move: fen_after_move,
+        ))
       True -> None
     }
   })

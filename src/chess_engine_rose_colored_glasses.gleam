@@ -34,7 +34,7 @@ fn list_cycle_by(list: List(a), offset: Int) -> List(a) {
 
 pub fn choose_move(fen: Fen) -> MoveSan {
   case legal_moves(fen) |> list_cycle_by(fen.board.black_pawn_bitboard) {
-    [random_move, ..] -> random_move
+    [random_move, ..] -> random_move.move_san
     [] ->
       // TODO should be impossible because the game server would have ended the game already
       fen.MoveSanCastle(fen.QueenSide)
