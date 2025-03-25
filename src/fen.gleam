@@ -2438,7 +2438,7 @@ pub type PiecePositioned {
   PiecePositioned(color: Color, kind: PieceKind, position: Position)
 }
 
-fn board_pieces_white(board: BoardBB) -> List(PiecePositioned) {
+pub fn board_pieces_white(board: BoardBB) -> List(PiecePositioned) {
   [
     board.white_king_bitboard
       |> bitboard_occupied_positions
@@ -2474,7 +2474,7 @@ fn board_pieces_white(board: BoardBB) -> List(PiecePositioned) {
   |> list.flatten
 }
 
-fn board_pieces_black(board: BoardBB) -> List(PiecePositioned) {
+pub fn board_pieces_black(board: BoardBB) -> List(PiecePositioned) {
   [
     board.black_king_bitboard
       |> bitboard_occupied_positions
