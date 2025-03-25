@@ -1,5 +1,4 @@
 import gleam/int
-import gleam/io
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/order
@@ -20,6 +19,10 @@ pub fn bitboard_empty() -> Bitboard {
 
 pub fn full_bitboard() -> Bitboard {
   0xffffffffffffffff
+}
+
+fn position_to_bitboard(position: Position) -> Bitboard {
+  int.bitwise_shift_left(0x0000000000000001, position |> position_to_int)
 }
 
 pub fn bitboard_and(bitboard1: Bitboard, bitboard2: Bitboard) -> Bitboard {
@@ -626,45 +629,48 @@ pub fn bitboard_occupied_positions(bitboard: Bitboard) -> List(Position) {
   case bitboard {
     0 -> []
     _ -> {
-      let count = 63
-      let just_first_bit_of_bb =
-        bitboard_and(bitboard, bitboard_from_int(0x8000000000000000))
-      {
-        case just_first_bit_of_bb {
-          0 -> get_positions_inner(bitboard_shift_left(bitboard, 1), count - 1)
-          _ -> {
-            use position_dest <- result.try(position_from_int(count))
-            use positions_inner <- result.try(get_positions_inner(
+      case bitboard_and(bitboard, bitboard_from_int(0x8000000000000000)) {
+        0 ->
+          bitboard_occupied_positions_inner(
+            bitboard_shift_left(bitboard, 1),
+            62,
+          )
+        _ -> {
+          [
+            Position(H, Eight),
+            ..bitboard_occupied_positions_inner(
               bitboard_shift_left(bitboard, 1),
-              count - 1,
-            ))
-            Ok([position_dest, ..positions_inner])
-          }
+              62,
+            )
+          ]
         }
       }
-      |> result.unwrap([])
     }
   }
 }
 
-pub fn get_positions_inner(
+pub fn bitboard_occupied_positions_inner(
   bitboard: Bitboard,
   count: Int,
-) -> Result(List(Position), _) {
+) -> List(Position) {
   case count < 0 {
-    True -> Ok([])
+    True -> []
     False -> {
-      let just_first_bit_of_bb =
-        bitboard_and(bitboard, bitboard_from_int(0x8000000000000000))
-      case just_first_bit_of_bb {
-        0 -> get_positions_inner(bitboard_shift_left(bitboard, 1), count - 1)
-        _ -> {
-          use position_dest <- result.try(position_from_int(count))
-          use positions_inner <- result.try(get_positions_inner(
+      case bitboard_and(bitboard, bitboard_from_int(0x8000000000000000)) {
+        0 ->
+          bitboard_occupied_positions_inner(
             bitboard_shift_left(bitboard, 1),
             count - 1,
-          ))
-          Ok([position_dest, ..positions_inner])
+          )
+        _ -> {
+          let assert Ok(position_dest) = position_from_int(count)
+          [
+            position_dest,
+            ..bitboard_occupied_positions_inner(
+              bitboard_shift_left(bitboard, 1),
+              count - 1,
+            )
+          ]
         }
       }
     }
@@ -1418,99 +1424,139 @@ pub fn legal_moves(fen: Fen) -> List(MoveSan) {
                     piece.color,
                   ),
                 )
-              case Some(moved_over_position) == maybe_capture_position_left {
+              case
+                // there can only be one en passant-able capture
+                { Some(moved_over_position) == maybe_capture_position_left }
+                || { Some(moved_over_position) == maybe_capture_position_right }
+              {
+                False -> None
                 True ->
-                  // TODO verify the target square is free
                   Some(MoveSanEnPassant(
                     from: piece.position,
                     to: moved_over_position,
                   ))
-                False ->
-                  case
-                    Some(moved_over_position) == maybe_capture_position_right
-                  {
-                    False -> None
-                    True ->
-                      // TODO verify the target square is free
-                      Some(MoveSanEnPassant(
-                        from: piece.position,
-                        to: moved_over_position,
-                      ))
-                  }
               }
             }
           },
-          // move forwards 1 for promotion
+          // move forwards 1 (possibly promoting)
           case fen.turn {
             White ->
               case piece.position.rank {
-                Seven ->
-                  Some(MoveSanNormal(
-                    moving_piece: piece.kind,
-                    from: piece.position,
-                    to: Position(file: piece.position.file, rank: Eight),
-                    capture: False,
-                    promotion: Some(Queen),
-                  ))
-                _ ->
+                Seven -> {
+                  let new_position =
+                    Position(file: piece.position.file, rank: Eight)
+                  case board_piece_at(fen.board, new_position) {
+                    Some(_blocked) -> None
+                    None ->
+                      Some(MoveSanNormal(
+                        moving_piece: piece.kind,
+                        from: piece.position,
+                        to: new_position,
+                        capture: False,
+                        promotion: Some(Queen),
+                      ))
+                  }
+                }
+                _ -> {
                   position_offset_by(piece.position, x: 0, y: 1)
-                  |> option.map(fn(one_up) {
-                    MoveSanNormal(
-                      moving_piece: piece.kind,
-                      from: piece.position,
-                      to: one_up,
-                      capture: False,
-                      promotion: None,
-                    )
+                  |> option.then(fn(new_position) {
+                    case board_piece_at(fen.board, new_position) {
+                      Some(_blocked) -> None
+                      None ->
+                        Some(MoveSanNormal(
+                          moving_piece: piece.kind,
+                          from: piece.position,
+                          to: new_position,
+                          capture: False,
+                          promotion: None,
+                        ))
+                    }
                   })
+                }
               }
             Black ->
               case piece.position.rank {
-                Two ->
-                  Some(MoveSanNormal(
-                    moving_piece: piece.kind,
-                    from: piece.position,
-                    to: Position(file: piece.position.file, rank: One),
-                    capture: False,
-                    promotion: Some(Queen),
-                  ))
-                _ ->
+                Two -> {
+                  let new_position =
+                    Position(file: piece.position.file, rank: One)
+                  case board_piece_at(fen.board, new_position) {
+                    Some(_blocked) -> None
+                    None ->
+                      Some(MoveSanNormal(
+                        moving_piece: piece.kind,
+                        from: piece.position,
+                        to: new_position,
+                        capture: False,
+                        promotion: Some(Queen),
+                      ))
+                  }
+                }
+                _ -> {
                   position_offset_by(piece.position, x: 0, y: -1)
-                  |> option.map(fn(one_down) {
-                    MoveSanNormal(
-                      moving_piece: piece.kind,
-                      from: piece.position,
-                      to: one_down,
-                      capture: False,
-                      promotion: None,
-                    )
+                  |> option.then(fn(new_position) {
+                    case board_piece_at(fen.board, new_position) {
+                      Some(_blocked) -> None
+                      None ->
+                        Some(MoveSanNormal(
+                          moving_piece: piece.kind,
+                          from: piece.position,
+                          to: new_position,
+                          capture: False,
+                          promotion: None,
+                        ))
+                    }
                   })
+                }
               }
           },
           // move forwards 2
           case fen.turn {
             Black ->
               case piece.position.rank {
-                Two ->
-                  Some(MoveSanNormal(
-                    from: piece.position,
-                    to: Position(rank: Four, file: piece.position.file),
-                    promotion: None,
-                    moving_piece: piece.kind,
-                    capture: False,
-                  ))
+                Two -> {
+                  let new_position =
+                    Position(rank: Four, file: piece.position.file)
+                  let jumped_over_position =
+                    Position(rank: Three, file: piece.position.file)
+                  case
+                    board_piece_at(fen.board, jumped_over_position),
+                    board_piece_at(fen.board, new_position)
+                  {
+                    Some(_blocked), _ | _, Some(_blocked) -> None
+                    None, None ->
+                      Some(MoveSanNormal(
+                        from: piece.position,
+                        to: new_position,
+                        promotion: None,
+                        moving_piece: piece.kind,
+                        capture: False,
+                      ))
+                  }
+                }
                 _ -> None
               }
             White ->
               case piece.position.rank {
-                Seven ->
-                  Some(MoveSanNormal(
-                    from: piece.position,
-                    to: Position(rank: Five, file: piece.position.file),
-                    promotion: None,
-                    moving_piece: piece.kind,
-                    capture: False,
-                  ))
+                Seven -> {
+                  let new_position =
+                    Position(rank: Five, file: piece.position.file)
+                  let jumped_over_position =
+                    Position(rank: Six, file: piece.position.file)
+                  case
+                    board_piece_at(fen.board, jumped_over_position),
+                    board_piece_at(fen.board, new_position)
+                  {
+                    Some(_blocked), _ | _, Some(_blocked) -> None
+                    None, None ->
+                      Some(MoveSanNormal(
+                        from: piece.position,
+                        to: new_position,
+                        promotion: None,
+                        moving_piece: piece.kind,
+                        capture: False,
+                      ))
+                  }
+                }
                 _ -> None
               }
           },
@@ -1529,24 +1575,28 @@ pub fn legal_moves(fen: Fen) -> List(MoveSan) {
             Some(left_capture_position) ->
               case board_piece_at(fen.board, left_capture_position) {
                 None -> None
-                Some(_captured_piece) -> {
-                  case fen.turn, piece.position.rank {
-                    White, Seven | Black, Two ->
-                      Some(MoveSanNormal(
-                        moving_piece: piece.kind,
-                        from: piece.position,
-                        to: left_capture_position,
-                        capture: True,
-                        promotion: Some(Queen),
-                      ))
-                    _, _ ->
-                      Some(MoveSanNormal(
-                        moving_piece: piece.kind,
-                        from: piece.position,
-                        to: left_capture_position,
-                        capture: True,
-                        promotion: None,
-                      ))
+                Some(captured_piece) -> {
+                  case captured_piece.color == fen.turn {
+                    True -> None
+                    False ->
+                      case fen.turn, piece.position.rank {
+                        White, Seven | Black, Two ->
+                          Some(MoveSanNormal(
+                            moving_piece: piece.kind,
+                            from: piece.position,
+                            to: left_capture_position,
+                            capture: True,
+                            promotion: Some(Queen),
+                          ))
+                        _, _ ->
+                          Some(MoveSanNormal(
+                            moving_piece: piece.kind,
+                            from: piece.position,
+                            to: left_capture_position,
+                            capture: True,
+                            promotion: None,
+                          ))
+                      }
                   }
                 }
               }
@@ -1566,24 +1616,28 @@ pub fn legal_moves(fen: Fen) -> List(MoveSan) {
             Some(right_capture_position) ->
               case board_piece_at(fen.board, right_capture_position) {
                 None -> None
-                Some(_captured_piece) ->
-                  case fen.turn, piece.position.rank {
-                    White, Seven | Black, Two ->
-                      Some(MoveSanNormal(
-                        moving_piece: piece.kind,
-                        from: piece.position,
-                        to: right_capture_position,
-                        capture: True,
-                        promotion: Some(Queen),
-                      ))
-                    _, _ ->
-                      Some(MoveSanNormal(
-                        moving_piece: piece.kind,
-                        from: piece.position,
-                        to: right_capture_position,
-                        capture: True,
-                        promotion: None,
-                      ))
+                Some(captured_piece) ->
+                  case captured_piece.color == fen.turn {
+                    True -> None
+                    False ->
+                      case fen.turn, piece.position.rank {
+                        White, Seven | Black, Two ->
+                          Some(MoveSanNormal(
+                            moving_piece: piece.kind,
+                            from: piece.position,
+                            to: right_capture_position,
+                            capture: True,
+                            promotion: Some(Queen),
+                          ))
+                        _, _ ->
+                          Some(MoveSanNormal(
+                            moving_piece: piece.kind,
+                            from: piece.position,
+                            to: right_capture_position,
+                            capture: True,
+                            promotion: None,
+                          ))
+                      }
                   }
               }
           },
@@ -1620,14 +1674,29 @@ pub fn legal_moves(fen: Fen) -> List(MoveSan) {
         |> list_map_and_somes(fn(offset) {
           position_offset_by(piece.position, x: offset.x, y: offset.y)
         })
-        |> list.map(fn(end_position) {
-          MoveSanNormal(
-            from: piece.position,
-            to: end_position,
-            promotion: None,
-            moving_piece: piece.kind,
-            capture: False,
-          )
+        |> list_map_and_somes(fn(end_position) {
+          case board_piece_at(fen.board, end_position) {
+            None ->
+              Some(MoveSanNormal(
+                piece.position,
+                end_position,
+                piece.kind,
+                False,
+                None,
+              ))
+            Some(destination_occupation_piece) ->
+              case destination_occupation_piece.color != fen.turn {
+                False -> None
+                True ->
+                  Some(MoveSanNormal(
+                    piece.position,
+                    end_position,
+                    piece.kind,
+                    True,
+                    None,
+                  ))
+              }
+          }
         })
         |> list_cons_some(case piece.color {
           Black ->
@@ -1637,7 +1706,13 @@ pub fn legal_moves(fen: Fen) -> List(MoveSan) {
                   board_piece_at(fen.board, Position(F, Eight)),
                   board_piece_at(fen.board, Position(G, Eight)),
                   board_is_check(
-                    BoardBB(..fen.board, black_king_bitboard: f8),
+                    BoardBB(
+                      ..fen.board,
+                      black_king_bitboard: position_to_bitboard(Position(
+                        F,
+                        Eight,
+                      )),
+                    ),
                     for: fen.turn,
                   )
                 {
@@ -1654,7 +1729,10 @@ pub fn legal_moves(fen: Fen) -> List(MoveSan) {
                   board_piece_at(fen.board, Position(F, One)),
                   board_piece_at(fen.board, Position(G, One)),
                   board_is_check(
-                    BoardBB(..fen.board, white_king_bitboard: f1),
+                    BoardBB(
+                      ..fen.board,
+                      white_king_bitboard: position_to_bitboard(Position(F, One)),
+                    ),
                     for: fen.turn,
                   )
                 {
@@ -1673,7 +1751,13 @@ pub fn legal_moves(fen: Fen) -> List(MoveSan) {
                   board_piece_at(fen.board, Position(C, Eight)),
                   board_piece_at(fen.board, Position(D, Eight)),
                   board_is_check(
-                    BoardBB(..fen.board, black_king_bitboard: d8),
+                    BoardBB(
+                      ..fen.board,
+                      black_king_bitboard: position_to_bitboard(Position(
+                        D,
+                        Eight,
+                      )),
+                    ),
                     for: fen.turn,
                   )
                 {
@@ -1691,7 +1775,10 @@ pub fn legal_moves(fen: Fen) -> List(MoveSan) {
                   board_piece_at(fen.board, Position(C, One)),
                   board_piece_at(fen.board, Position(D, One)),
                   board_is_check(
-                    BoardBB(..fen.board, white_king_bitboard: d1),
+                    BoardBB(
+                      ..fen.board,
+                      white_king_bitboard: position_to_bitboard(Position(D, One)),
+                    ),
                     for: fen.turn,
                   )
                 {
@@ -1724,6 +1811,42 @@ pub fn legal_moves(fen: Fen) -> List(MoveSan) {
             moving_piece: piece.kind,
             capture: False,
           )
+        })
+        // TODO merge with above
+        |> list_map_and_somes(fn(move_san) {
+          case move_san {
+            MoveSanCastle(side) -> Some(MoveSanCastle(side))
+            MoveSanEnPassant(from, to) -> Some(MoveSanEnPassant(from, to))
+            MoveSanNormal(
+              from,
+              destination_position,
+              moving_piece,
+              _,
+              promotion,
+            ) ->
+              case board_piece_at(fen.board, destination_position) {
+                None ->
+                  Some(MoveSanNormal(
+                    from,
+                    destination_position,
+                    moving_piece,
+                    False,
+                    promotion,
+                  ))
+                Some(destination_occupation_piece) ->
+                  case destination_occupation_piece.color != fen.turn {
+                    False -> None
+                    True ->
+                      Some(MoveSanNormal(
+                        from,
+                        destination_position,
+                        moving_piece,
+                        True,
+                        promotion,
+                      ))
+                  }
+              }
+          }
         })
       Queen ->
         [
@@ -1763,36 +1886,7 @@ pub fn legal_moves(fen: Fen) -> List(MoveSan) {
     }
   })
   |> list_map_and_somes(fn(move_san) {
-    case move_san {
-      MoveSanCastle(side) -> Some(MoveSanCastle(side))
-      MoveSanEnPassant(from, to) -> Some(MoveSanEnPassant(from, to))
-      MoveSanNormal(from, destination_position, moving_piece, _, promotion) ->
-        case board_piece_at(fen.board, destination_position) {
-          None ->
-            Some(MoveSanNormal(
-              from,
-              destination_position,
-              moving_piece,
-              False,
-              promotion,
-            ))
-          Some(destination_occupation_piece) ->
-            case destination_occupation_piece.color != fen.turn {
-              False -> None
-              True ->
-                Some(MoveSanNormal(
-                  from,
-                  destination_position,
-                  moving_piece,
-                  True,
-                  promotion,
-                ))
-            }
-        }
-    }
-  })
-  |> list_map_and_somes(fn(move_san) {
-    // TODO further disallow final board that is in check
+    // TODO optimize to return the calculated fens as well
     let fen_after_move = fen_apply_move_san(fen, move_san)
     case board_is_check(fen_after_move.board, for: fen.turn) {
       False -> Some(move_san)
@@ -1866,7 +1960,6 @@ pub fn fen_apply_move_san(fen: Fen, move: MoveSan) -> Fen {
             fullmove: new_fullmove,
           )
       }
-
     MoveSanNormal(from, to, moving_piece, capture, promotion) ->
       case promotion {
         Some(promotion_piece_kind) ->
@@ -2409,131 +2502,3 @@ fn board_pieces_black(board: BoardBB) -> List(PiecePositioned) {
   ]
   |> list.flatten
 }
-
-pub const a1 = 0b00000000_00000000_00000000_00000000_00000000_00000000_00000011_00000010
-
-pub const b1 = 0b00000000_00000000_00000000_00000000_00000000_00000000_00000111_00000101
-
-pub const c1 = 0b00000000_00000000_00000000_00000000_00000000_00000000_00001110_00001010
-
-pub const d1 = 0b00000000_00000000_00000000_00000000_00000000_00000000_00011100_00010100
-
-pub const e1 = 0b00000000_00000000_00000000_00000000_00000000_00000000_00111000_00101000
-
-pub const f1 = 0b00000000_00000000_00000000_00000000_00000000_00000000_01110000_01010000
-
-pub const g1 = 0b00000000_00000000_00000000_00000000_00000000_00000000_11100000_10100000
-
-pub const h1 = 0b00000000_00000000_00000000_00000000_00000000_00000000_11000000_01000000
-
-pub const a2 = 0b00000000_00000000_00000000_00000000_00000000_00000011_00000010_00000011
-
-pub const b2 = 0b00000000_00000000_00000000_00000000_00000000_00000111_00000101_00000111
-
-pub const c2 = 0b00000000_00000000_00000000_00000000_00000000_00001110_00001010_00001110
-
-pub const d2 = 0b00000000_00000000_00000000_00000000_00000000_00011100_00010100_00011100
-
-pub const e2 = 0b00000000_00000000_00000000_00000000_00000000_00111000_00101000_00111000
-
-pub const f2 = 0b00000000_00000000_00000000_00000000_00000000_01110000_01010000_01110000
-
-pub const g2 = 0b00000000_00000000_00000000_00000000_00000000_11100000_10100000_11100000
-
-pub const h2 = 0b00000000_00000000_00000000_00000000_00000000_11000000_01000000_11000000
-
-pub const a3 = 0b00000000_00000000_00000000_00000000_00000011_00000010_00000011_00000000
-
-pub const b3 = 0b00000000_00000000_00000000_00000000_00000111_00000101_00000111_00000000
-
-pub const c3 = 0b00000000_00000000_00000000_00000000_00001110_00001010_00001110_00000000
-
-pub const d3 = 0b00000000_00000000_00000000_00000000_00011100_00010100_00011100_00000000
-
-pub const e3 = 0b00000000_00000000_00000000_00000000_00111000_00101000_00111000_00000000
-
-pub const f3 = 0b00000000_00000000_00000000_00000000_01110000_01010000_01110000_00000000
-
-pub const g3 = 0b00000000_00000000_00000000_00000000_11100000_10100000_11100000_00000000
-
-pub const h3 = 0b00000000_00000000_00000000_00000000_11000000_01000000_11000000_00000000
-
-pub const a4 = 0b00000000_00000000_00000000_00000011_00000010_00000011_00000000_00000000
-
-pub const b4 = 0b00000000_00000000_00000000_00000111_00000101_00000111_00000000_00000000
-
-pub const c4 = 0b00000000_00000000_00000000_00001110_00001010_00001110_00000000_00000000
-
-pub const d4 = 0b00000000_00000000_00000000_00011100_00010100_00011100_00000000_00000000
-
-pub const e4 = 0b00000000_00000000_00000000_00111000_00101000_00111000_00000000_00000000
-
-pub const f4 = 0b00000000_00000000_00000000_01110000_01010000_01110000_00000000_00000000
-
-pub const g4 = 0b00000000_00000000_00000000_11100000_10100000_11100000_00000000_00000000
-
-pub const h4 = 0b00000000_00000000_00000000_11000000_01000000_11000000_00000000_00000000
-
-pub const a5 = 0b00000000_00000000_00000011_00000010_00000011_00000000_00000000_00000000
-
-pub const b5 = 0b00000000_00000000_00000111_00000101_00000111_00000000_00000000_00000000
-
-pub const c5 = 0b00000000_00000000_00001110_00001010_00001110_00000000_00000000_00000000
-
-pub const d5 = 0b00000000_00000000_00011100_00010100_00011100_00000000_00000000_00000000
-
-pub const e5 = 0b00000000_00000000_00111000_00101000_00111000_00000000_00000000_00000000
-
-pub const f5 = 0b00000000_00000000_01110000_01010000_01110000_00000000_00000000_00000000
-
-pub const g5 = 0b00000000_00000000_11100000_10100000_11100000_00000000_00000000_00000000
-
-pub const h5 = 0b00000000_00000000_11000000_01000000_11000000_00000000_00000000_00000000
-
-pub const a6 = 0b00000000_00000011_00000010_00000011_00000000_00000000_00000000_00000000
-
-pub const b6 = 0b00000000_00000111_00000101_00000111_00000000_00000000_00000000_00000000
-
-pub const c6 = 0b00000000_00001110_00001010_00001110_00000000_00000000_00000000_00000000
-
-pub const d6 = 0b00000000_00011100_00010100_00011100_00000000_00000000_00000000_00000000
-
-pub const e6 = 0b00000000_00111000_00101000_00111000_00000000_00000000_00000000_00000000
-
-pub const f6 = 0b00000000_01110000_01010000_01110000_00000000_00000000_00000000_00000000
-
-pub const g6 = 0b00000000_11100000_10100000_11100000_00000000_00000000_00000000_00000000
-
-pub const h6 = 0b00000000_11000000_01000000_11000000_00000000_00000000_00000000_00000000
-
-pub const a7 = 0b00000011_00000010_00000011_00000000_00000000_00000000_00000000_00000000
-
-pub const b7 = 0b00000111_00000101_00000111_00000000_00000000_00000000_00000000_00000000
-
-pub const c7 = 0b00001110_00001010_00001110_00000000_00000000_00000000_00000000_00000000
-
-pub const d7 = 0b00011100_00010100_00011100_00000000_00000000_00000000_00000000_00000000
-
-pub const e7 = 0b00111000_00101000_00111000_00000000_00000000_00000000_00000000_00000000
-
-pub const f7 = 0b01110000_01010000_01110000_00000000_00000000_00000000_00000000_00000000
-
-pub const g7 = 0b11100000_10100000_11100000_00000000_00000000_00000000_00000000_00000000
-
-pub const h7 = 0b11000000_01000000_11000000_00000000_00000000_00000000_00000000_00000000
-
-pub const a8 = 0b00000010_00000011_00000000_00000000_00000000_00000000_00000000_00000000
-
-pub const b8 = 0b00000101_00000111_00000000_00000000_00000000_00000000_00000000_00000000
-
-pub const c8 = 0b00001010_00001110_00000000_00000000_00000000_00000000_00000000_00000000
-
-pub const d8 = 0b00010100_00011100_00000000_00000000_00000000_00000000_00000000_00000000
-
-pub const e8 = 0b00101000_00111000_00000000_00000000_00000000_00000000_00000000_00000000
-
-pub const f8 = 0b01010000_01110000_00000000_00000000_00000000_00000000_00000000_00000000
-
-pub const g8 = 0b10100000_11100000_00000000_00000000_00000000_00000000_00000000_00000000
-
-pub const h8 = 0b01000000_11000000_00000000_00000000_00000000_00000000_00000000_00000000
