@@ -2,15 +2,8 @@
 
 > In progress.
 
-My submission to [isaacharrisholt/gleam-chess-tournament](https://github.com/isaacharrisholt/gleam-chess-tournament).
+A not so objective bot that heavily relies on vibes.
+More details in source code comments.
+
+Submission to [isaacharrisholt/gleam-chess-tournament](https://github.com/isaacharrisholt/gleam-chess-tournament).
 Thanks for the cool competition!
-
-## inner workings
-
-goals:
-
-- maximize potential (damage caused in few moves without considering obstacles much)
-- analyze interesting/risky positions first and deeper
-- maximize piece activity
-
-TODO

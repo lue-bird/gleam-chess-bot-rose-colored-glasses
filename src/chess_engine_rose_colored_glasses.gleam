@@ -121,9 +121,39 @@ fn choose_move(fen: Fen) -> MoveSan {
   {
     [best_move, ..] -> best_move.move_san
     [] ->
-      // TODO should be impossible because the game server would have ended the game already
+      // should be impossible because the game server would have ended the game already
       fen.MoveSanCastle(fen.QueenSide)
   }
+}
+
+/// usually, how deep a position is evaluated
+/// is connected to the evaluation (more promising moves being analyzed deeper).
+/// This bot however tries to determine wether a position is more
+///   - tactical, therefore desperately needing deeper analysis or
+///   - positional, therefore not benefitting much from deeper analysis
+/// The resulting Float will be close to 0 for positional positions and high for tactical ones.
+///
+/// To give an example:
+///   - forcing positions like checks are highly tactical
+///     so we need to calculate those to their end first
+///   - opening and middle game are often about preparing pieces for battle, optimizing their potential.
+///     There, we need to look out for explosions of the position in any branch
+///     instead of investing too much into fine-tuning details
+///
+/// This style of "thinking" is somewhat close to how humans play chess (me at least):
+/// You have limited resources to deeply calculate, so you evaluate the initial positions after possible first moves based on pattern recognition
+/// and only pick a few "hope chess" (dream/nightmare scenario) lines to calculate more thoroughly and refine those
+///
+/// Another advantage of this approach is that we can allow evaluation to be a bit more expensive
+/// because we only need to evaluate final (!) positions.
+/// However, this is somewhat negated by the fact that we may need to iteratively
+/// deepen our search depending on available time for our move (TODO how to find that out?).
+fn board_search_priority(fen: Fen) -> Float {
+  // TODO is the position open with many open lines
+  //      or closed (low direct ranges)
+  // TODO contested squares
+  // TODO optimize
+  10.0 /. { legal_moves(fen) |> list.length |> int.to_float }
 }
 
 type EvaluatedFenAndMove {
@@ -136,7 +166,10 @@ type EvaluatedFenAndMove {
 
 /// the goal is shallowly evaluating long term "promise" of a position
 /// without looking in the near future at at.
-/// e.g. a far advanced pawn that has no chance of promoting in the near future is still extremely valuable
+/// e.g. a far advanced pawn that has no chance of promoting in the near future is still extremely valuable.
+///
+/// This is really the heart of the bot and is likely more expensive than that of other bots.
+/// The result is that its tactical vision is less reliable while overall position "health"/"balance" is prioritized
 fn board_evaluate(board: BoardBB) -> EvaluationForWhite {
   let white_pieces = fen.board_pieces_white(board)
   let black_pieces = fen.board_pieces_black(board)
@@ -150,10 +183,17 @@ fn board_evaluate(board: BoardBB) -> EvaluationForWhite {
   individual_piece_evaluation
 }
 
+/// deliberately does not include activity bonus/penalty (e.g. for a knight on the rim)
+/// this is calculated in separate steps
 fn evaluate_piece_positioned(piece: PiecePositioned) -> EvaluationForWhite {
   evaluation_negate_if_black(
     case piece.kind {
-      Pawn -> 0.98
+      Pawn ->
+        case piece.color, piece.position.rank {
+          Black, Two | White, Seven -> 1.9
+          Black, Three | White, Six -> 1.5
+          Black, _ | White, _ -> 0.95
+        }
       Bishop -> 3.3
       King -> 0.0
       Knight -> 2.8
@@ -162,6 +202,25 @@ fn evaluate_piece_positioned(piece: PiecePositioned) -> EvaluationForWhite {
     },
     piece.color,
   )
+}
+
+/// combined available movement and promise of available movement,
+/// also shallowly taking opponent piece value in line of sight into account
+fn evaluate_piece_activity(
+  board: BoardBB,
+  piece: PiecePositioned,
+) -> EvaluationForWhite {
+  case piece.kind {
+    Bishop -> todo
+    King -> todo
+    Knight -> todo
+    Pawn ->
+      // en-passant activity is disregarded as it almost never changes
+      // the evaluation
+      todo
+    Queen -> todo
+    Rook -> todo
+  }
 }
 
 fn evaluation_negate_if_black(eval: Float, color: Color) {
